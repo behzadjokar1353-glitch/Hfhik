@@ -3,10 +3,6 @@ name: Build Android APK
 on:
 workflow_dispatch:
 push:
-paths:
-- 'main.yml'
-- '.github/workflows/main.yml'
-- 'hesabdari_behzad_v4_buildable_source.zip'
 
 jobs:
 build:
@@ -28,12 +24,15 @@ uses: actions/checkout@v4
       mkdir -p source
       unzip -q hesabdari_behzad_v4_buildable_source.zip -d source
 
+  - name: Find Gradle wrapper
+    run: |
+      find source -type f -name gradlew
+
   - name: Build APK
     run: |
       WRAPPER=$(find source -type f -name gradlew | head -n 1)
       if [ -z "$WRAPPER" ]; then
-        echo "Gradle wrapper not found in ZIP"
-        find source -maxdepth 3 -type f | head -n 50
+        echo "ERROR: gradlew not found"
         exit 1
       fi
       cd "$(dirname "$WRAPPER")"
