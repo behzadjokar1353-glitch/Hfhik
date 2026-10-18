@@ -2,12 +2,17 @@ name: Build Android APK
 
 on:
 workflow_dispatch:
+push:
+paths:
+- 'main.yml'
+- '.github/workflows/main.yml'
+- 'hesabdari_behzad_v4_buildable_source.zip'
 
 jobs:
 build:
 runs-on: ubuntu-latest
 steps:
-- name: Download project
+- name: Checkout repository
 uses: actions/checkout@v4
 
   - name: Set up Java
@@ -16,24 +21,28 @@ uses: actions/checkout@v4
       distribution: temurin
       java-version: '17'
 
-  - name: Set up Gradle
-    uses: gradle/actions/setup-gradle@v4
+  - name: Extract project
+    run: |
+      sudo apt-get update
+      sudo apt-get install -y unzip
+      mkdir -p source
+      unzip -q hesabdari_behzad_v4_buildable_source.zip -d source
 
   - name: Build APK
     run: |
-      if [ -f gradlew ]; then
-        chmod +x gradlew
-        ./gradlew assembleDebug
-      elif [ -f gradlew.bat ]; then
-        echo "Gradle wrapper needs checking"
+      WRAPPER=$(find source -type f -name gradlew | head -n 1)
+      if [ -z "$WRAPPER" ]; then
+        echo "Gradle wrapper not found in ZIP"
+        find source -maxdepth 3 -type f | head -n 50
         exit 1
-      else
-        gradle assembleDebug
       fi
+      cd "$(dirname "$WRAPPER")"
+      chmod +x gradlew
+      ./gradlew assembleDebug
 
   - name: Upload APK
     uses: actions/upload-artifact@v4
     with:
       name: hesabdari-behzad-apk
-      path: '**/build/outputs/apk/debug/*.apk'
+      path: source/**/build/outputs/apk/debug/*.apk
       if-no-files-found: error
