@@ -1,0 +1,39 @@
+name: Build Android APK
+
+on:
+workflow_dispatch:
+
+jobs:
+build:
+runs-on: ubuntu-latest
+steps:
+- name: Download project
+uses: actions/checkout@v4
+
+  - name: Set up Java
+    uses: actions/setup-java@v4
+    with:
+      distribution: temurin
+      java-version: '17'
+
+  - name: Set up Gradle
+    uses: gradle/actions/setup-gradle@v4
+
+  - name: Build APK
+    run: |
+      if [ -f gradlew ]; then
+        chmod +x gradlew
+        ./gradlew assembleDebug
+      elif [ -f gradlew.bat ]; then
+        echo "Gradle wrapper needs checking"
+        exit 1
+      else
+        gradle assembleDebug
+      fi
+
+  - name: Upload APK
+    uses: actions/upload-artifact@v4
+    with:
+      name: hesabdari-behzad-apk
+      path: '**/build/outputs/apk/debug/*.apk'
+      if-no-files-found: error
