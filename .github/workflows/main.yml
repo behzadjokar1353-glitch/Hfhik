@@ -1,4 +1,3 @@
-
 name: Build Android APK
 
 on:
@@ -32,13 +31,15 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y unzip
 
-      - name: Extract Android project
+      - name: Check project ZIP
         run: |
           if [ ! -f "hesabdari_behzad_v4_buildable_source.zip" ]; then
             echo "ERROR: Project ZIP file not found!"
             exit 1
           fi
 
+      - name: Extract Android project
+        run: |
           mkdir -p source
           unzip -q hesabdari_behzad_v4_buildable_source.zip -d source
 
@@ -58,9 +59,6 @@ jobs:
 
           echo "wrapper=$WRAPPER" >> "$GITHUB_OUTPUT"
           echo "project_dir=$PROJECT_DIR" >> "$GITHUB_OUTPUT"
-
-          echo "Gradle wrapper: $WRAPPER"
-          echo "Project directory: $PROJECT_DIR"
 
       - name: Build APK
         shell: bash
