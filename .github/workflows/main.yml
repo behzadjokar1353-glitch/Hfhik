@@ -25,14 +25,15 @@ steps:
 
   - name: Set up Android SDK
     uses: android-actions/setup-android@v4
-    with:
-      packages: 'platform-tools platforms;android-35 build-tools;35.0.0'
+
+  - name: Install Android SDK packages
+    run: |
+      sdkmanager "platform-tools" "platforms;android-35" "build-tools;35.0.0"
 
   - name: Check project ZIP
     run: |
       if [ ! -f "hesabdari_behzad_v4_buildable_source.zip" ]; then
         echo "ERROR: Project ZIP not found in repository root."
-        echo "Files in repository:"
         ls -la
         exit 1
       fi
@@ -47,16 +48,13 @@ steps:
   - name: Locate Android project
     run: |
       PROJECT_DIR=""
-
-      for FILE in \
-        $(find source -type f \( -name settings.gradle -o -name settings.gradle.kts \)); do
+      while IFS= read -r FILE; do
         PROJECT_DIR="$(dirname "$FILE")"
         break
-      done
+      done < <(find source -type f \( -name settings.gradle -o -name settings.gradle.kts \) -print)
 
       if [ -z "$PROJECT_DIR" ]; then
-        echo "ERROR: Android Gradle project not found."
-        echo "The ZIP may contain source code without Gradle build files."
+        echo "ERROR: Android Gradle project not found in ZIP."
         find source -maxdepth 5 -type f | head -300
         exit 1
       fi
@@ -66,6 +64,8 @@ steps:
 
   - name: Set up Gradle
     uses: gradle/actions/setup-gradle@v4
+    with:
+      gradle-version: '8.10.2'
 
   - name: Build debug APK
     run: |
@@ -74,11 +74,7 @@ steps:
       if [ -f "./gradlew" ]; then
         chmod +x ./gradlew
         ./gradlew --no-daemon assembleDebug
-      elif [ -f "gradlew" ]; then
-        chmod +x gradlew
-        ./gradlew --no-daemon assembleDebug
       else
-        echo "Gradle wrapper is missing; trying installed Gradle."
         gradle --no-daemon assembleDebug
       fi
 
