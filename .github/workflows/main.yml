@@ -19,13 +19,36 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Extract project
+      - name: Install dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y unzip
+
+      - name: Extract project
+        run: |
           mkdir -p source
           unzip -q hesabdari_behzad_v4_buildable_source.zip -d source
 
       - name: Find Gradle wrapper
+        id: gradle
         run: |
-          find source -name gradlew -type f
+          WRAPPER=$(find source -type f -name gradlew | head -n 1)
+          if [ -z "$WRAPPER" ]; then
+            echo "Gradle wrapper not found"
+            exit 1
+          fi
+          echo "wrapper=$WRAPPER" >> "$GITHUB_OUTPUT"
+          echo "project_dir=$(dirname "$WRAPPER")" >> "$GITHUB_OUTPUT"
+
+      - name: Build APK
+        working-directory: source
+        run: |
+          chmod +x "${{ steps.gradle.outputs.wrapper }}"
+          "${{ steps.gradle.outputs.wrapper }}" -p "${{ steps.gradle.outputs.project_dir }}" assembleDebug
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: hesabdari-behzad-apk
+          path: source/**/build/outputs/apk/**/*.apk
+          if-no-files-found: error
