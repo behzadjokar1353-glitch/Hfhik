@@ -28,22 +28,29 @@ jobs:
         run: |
           mkdir -p source
           unzip -q hesabdari_behzad_v4_buildable_source.zip -d source
+
       - name: Find Gradle wrapper
         id: gradle
+        shell: bash
         run: |
           WRAPPER=$(find source -type f -name gradlew | head -n 1)
+
           if [ -z "$WRAPPER" ]; then
-            echo "Gradle wrapper not found"
+            echo "ERROR: Gradle wrapper not found"
             exit 1
           fi
+
+          PROJECT_DIR=$(dirname "$WRAPPER")
+
           echo "wrapper=$WRAPPER" >> "$GITHUB_OUTPUT"
-          echo "project_dir=$(dirname "$WRAPPER")" >> "$GITHUB_OUTPUT"
+          echo "project_dir=$PROJECT_DIR" >> "$GITHUB_OUTPUT"
 
       - name: Build APK
-        working-directory: source
         run: |
           chmod +x "${{ steps.gradle.outputs.wrapper }}"
-          "${{ steps.gradle.outputs.wrapper }}" -p "${{ steps.gradle.outputs.project_dir }}" assembleDebug
+          "${{ steps.gradle.outputs.wrapper }}" \
+            -p "${{ steps.gradle.outputs.project_dir }}" \
+            assembleDebug
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
