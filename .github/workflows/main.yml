@@ -28,7 +28,6 @@ jobs:
         run: |
           mkdir -p source
           unzip -q hesabdari_behzad_v4_buildable_source.zip -d source
-
       - name: Find Gradle wrapper
         id: gradle
         run: |
