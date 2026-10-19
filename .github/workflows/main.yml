@@ -1,101 +1,99 @@
 name: Build Android APK
 
 on:
-workflow_dispatch:
-push:
-branches:
-- main
+  workflow_dispatch:
+  push:
+    branches:
+      - main
 
 permissions:
-contents: read
+  contents: read
 
 jobs:
-build:
-runs-on: ubuntu-latest
+  build:
+    runs-on: ubuntu-latest
 
-steps:
-  - name: Checkout repository
-    uses: actions/checkout@v4
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-  - name: Set up Java 17
-    uses: actions/setup-java@v4
-    with:
-      distribution: temurin
-      java-version: '17'
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
 
-  - name: Set up Android SDK
-    uses: android-actions/setup-android@v4
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v4
 
-  - name: Install Android SDK packages
-    run: |
-      sdkmanager "platform-tools" "platforms;android-35" "build-tools;35.0.0"
+      - name: Install Android SDK packages
+        run: |
+          sdkmanager "platform-tools" "platforms;android-35" "build-tools;35.0.0"
 
-  - name: Check project ZIP
-    run: |
-      if [ ! -f "hesabdari_behzad_v4_buildable_source.zip" ]; then
-        echo "ERROR: Project ZIP not found in repository root."
-        ls -la
-        exit 1
-      fi
+      - name: Check project ZIP
+        run: |
+          if [ ! -f "hesabdari_behzad_v4_buildable_source.zip" ]; then
+            echo "ERROR: Project ZIP not found in repository root."
+            ls -la
+            exit 1
+          fi
 
-  - name: Extract project
-    run: |
-      mkdir -p source
-      unzip -q "hesabdari_behzad_v4_buildable_source.zip" -d source
-      echo "Extracted project files:"
-      find source -maxdepth 4 -type f | head -200
+      - name: Extract project
+        run: |
+          mkdir -p source
+          unzip -q "hesabdari_behzad_v4_buildable_source.zip" -d source
+          find source -maxdepth 5 -type f | head -200
 
-  - name: Locate Android project
-    run: |
-      PROJECT_DIR=""
-      while IFS= read -r FILE; do
-        PROJECT_DIR="$(dirname "$FILE")"
-        break
-      done < <(find source -type f \( -name settings.gradle -o -name settings.gradle.kts \) -print)
+      - name: Locate Android project
+        run: |
+          PROJECT_DIR=""
+          while IFS= read -r FILE; do
+            PROJECT_DIR="$(dirname "$FILE")"
+            break
+          done < <(find source -type f \( -name settings.gradle -o -name settings.gradle.kts \) -print)
 
-      if [ -z "$PROJECT_DIR" ]; then
-        echo "ERROR: Android Gradle project not found in ZIP."
-        find source -maxdepth 5 -type f | head -300
-        exit 1
-      fi
+          if [ -z "$PROJECT_DIR" ]; then
+            echo "ERROR: Android Gradle project not found in ZIP."
+            find source -maxdepth 5 -type f | head -300
+            exit 1
+          fi
 
-      echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
-      echo "Android project directory: $PROJECT_DIR"
+          echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
+          echo "Android project directory: $PROJECT_DIR"
 
-  - name: Set up Gradle
-    uses: gradle/actions/setup-gradle@v4
-    with:
-      gradle-version: '8.10.2'
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.10.2'
 
-  - name: Build debug APK
-    run: |
-      cd "$PROJECT_DIR"
+      - name: Build debug APK
+        run: |
+          cd "$PROJECT_DIR"
 
-      if [ -f "./gradlew" ]; then
-        chmod +x ./gradlew
-        ./gradlew --no-daemon assembleDebug
-      else
-        gradle --no-daemon assembleDebug
-      fi
+          if [ -f "./gradlew" ]; then
+            chmod +x ./gradlew
+            ./gradlew --no-daemon assembleDebug
+          else
+            gradle --no-daemon assembleDebug
+          fi
 
-  - name: Verify APK
-    run: |
-      APK="$(find source -type f -path '*/build/outputs/apk/debug/*.apk' -print -quit)"
+      - name: Verify APK
+        run: |
+          APK="$(find source -type f -path '*/build/outputs/apk/debug/*.apk' -print -quit)"
 
-      if [ -z "$APK" ]; then
-        echo "ERROR: APK was not generated."
-        echo "Build output files:"
-        find source -type f -path '*/build/*' | head -200
-        exit 1
-      fi
+          if [ -z "$APK" ]; then
+            echo "ERROR: APK was not generated."
+            find source -type f -path '*/build/*' | head -200
+            exit 1
+          fi
 
-      echo "APK_PATH=$APK" >> "$GITHUB_ENV"
-      echo "APK generated successfully: $APK"
+          echo "APK_PATH=$APK" >> "$GITHUB_ENV"
+          echo "APK generated successfully: $APK"
 
-  - name: Upload APK
-    uses: actions/upload-artifact@v4
-    with:
-      name: hesabdari-behzad-apk
-      path: ${{ env.APK_PATH }}
-      if-no-files-found: error
-      retention-days: 7
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: hesabdari-behzad-apk
+          path: ${{ env.APK_PATH }}
+          if-no-files-found: error
+          retention-days: 7
