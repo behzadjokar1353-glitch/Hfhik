@@ -17,72 +17,77 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Set up Java
+      - name: Set up Java 17
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
 
-      - name: Set up Android SDK
+      - name: Setup Android SDK
         uses: android-actions/setup-android@v3
 
-      - name: Install dependencies
+      - name: Install Android SDK packages
+        run: |
+          sdkmanager --install \
+            "platform-tools" \
+            "platforms;android-35" \
+            "build-tools;35.0.0"
+
+      - name: Install unzip
         run: |
           sudo apt-get update
           sudo apt-get install -y unzip
 
-      - name: Check project ZIP
+      - name: Extract Android project
         run: |
           if [ ! -f "hesabdari_behzad_v4_buildable_source.zip" ]; then
             echo "ERROR: Project ZIP file not found!"
+            ls -la
             exit 1
           fi
 
-      - name: Extract Android project
-        run: |
           mkdir -p source
-          unzip -q hesabdari_behzad_v4_buildable_source.zip -d source
+          unzip -o "hesabdari_behzad_v4_buildable_source.zip" -d source
 
       - name: Find Gradle wrapper
-        id: gradle
+        id: find_project
         shell: bash
         run: |
-          WRAPPER=$(find "$GITHUB_WORKSPACE/source" \
-            -type f -name gradlew -print -quit)
+          GRADLE_WRAPPER="$(find source -type f -name gradlew -print -quit)"
 
-          if [ -z "$WRAPPER" ]; then
-            echo "ERROR: Gradle wrapper not found!"
+          if [ -z "$GRADLE_WRAPPER" ]; then
+            echo "ERROR: gradlew not found in extracted project."
+            find source -maxdepth 4 -type f | head -100
             exit 1
           fi
 
-          PROJECT_DIR=$(dirname "$WRAPPER")
-
-          echo "wrapper=$WRAPPER" >> "$GITHUB_OUTPUT"
+          PROJECT_DIR="$(dirname "$GRADLE_WRAPPER")"
           echo "project_dir=$PROJECT_DIR" >> "$GITHUB_OUTPUT"
 
-      - name: Build APK
-        shell: bash
-        run: |
-          chmod +x "${{ steps.gradle.outputs.wrapper }}"
+          chmod +x "$GRADLE_WRAPPER"
 
-          "${{ steps.gradle.outputs.wrapper }}" \
-            -p "${{ steps.gradle.outputs.project_dir }}" \
-            --no-daemon \
-            assembleDebug
+          echo "Project directory: $PROJECT_DIR"
+
+      - name: Build debug APK
+        working-directory: .
+        env:
+          PROJECT_DIR: ${{ steps.find_project.outputs.project_dir }}
+        run: |
+          cd "$PROJECT_DIR"
+          ./gradlew --no-daemon assembleDebug
 
       - name: Verify APK
-        shell: bash
         run: |
-          APK=$(find source -type f \
-            -path "*/build/outputs/apk/debug/*.apk" \
-            -print -quit)
+          APK="$(find source -type f \
+            -path '*/build/outputs/apk/debug/*.apk' \
+            -print -quit)"
 
           if [ -z "$APK" ]; then
-            echo "ERROR: APK file was not generated!"
+            echo "ERROR: APK file was not generated."
             exit 1
           fi
 
-          echo "APK successfully generated:"
+          echo "APK successfully generated: $APK"
           ls -lh "$APK"
 
       - name: Upload APK
