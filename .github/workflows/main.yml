@@ -1,47 +1,31 @@
+
 name: Build Android APK
 
 on:
-workflow_dispatch:
-push:
+  workflow_dispatch:
+  push:
 
 jobs:
-build:
-runs-on: ubuntu-latest
-steps:
-- name: Checkout repository
-uses: actions/checkout@v4
+  build:
+    runs-on: ubuntu-latest
 
-  - name: Set up Java
-    uses: actions/setup-java@v4
-    with:
-      distribution: temurin
-      java-version: '17'
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-  - name: Extract project
-    run: |
-      sudo apt-get update
-      sudo apt-get install -y unzip
-      mkdir -p source
-      unzip -q hesabdari_behzad_v4_buildable_source.zip -d source
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
 
-  - name: Find Gradle wrapper
-    run: |
-      find source -type f -name gradlew
+      - name: Extract project
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y unzip
+          mkdir -p source
+          unzip -q hesabdari_behzad_v4_buildable_source.zip -d source
 
-  - name: Build APK
-    run: |
-      WRAPPER=$(find source -type f -name gradlew | head -n 1)
-      if [ -z "$WRAPPER" ]; then
-        echo "ERROR: gradlew not found"
-        exit 1
-      fi
-      cd "$(dirname "$WRAPPER")"
-      chmod +x gradlew
-      ./gradlew assembleDebug
-
-  - name: Upload APK
-    uses: actions/upload-artifact@v4
-    with:
-      name: hesabdari-behzad-apk
-      path: source/**/build/outputs/apk/debug/*.apk
-      if-no-files-found: error
+      - name: Find Gradle wrapper
+        run: |
+          find source -name gradlew -type f
