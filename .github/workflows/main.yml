@@ -1,95 +1,96 @@
+
 name: Build Android APK
 
 on:
-workflow_dispatch:
-push:
-branches:
-- main
+  workflow_dispatch:
+  push:
+    branches:
+      - main
 
 permissions:
-contents: read
+  contents: read
 
 jobs:
-build:
-runs-on: ubuntu-latest
+  build:
+    runs-on: ubuntu-latest
 
-steps:
-  - name: Checkout repository
-    uses: actions/checkout@v4
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-  - name: Set up Java
-    uses: actions/setup-java@v4
-    with:
-      distribution: temurin
-      java-version: '17'
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
 
-  - name: Set up Android SDK
-    uses: android-actions/setup-android@v3
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
 
-  - name: Install dependencies
-    run: |
-      sudo apt-get update
-      sudo apt-get install -y unzip
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y unzip
 
-  - name: Extract Android project
-    run: |
-      if [ ! -f "hesabdari_behzad_v4_buildable_source.zip" ]; then
-        echo "ERROR: Project ZIP file not found!"
-        exit 1
-      fi
+      - name: Extract Android project
+        run: |
+          if [ ! -f "hesabdari_behzad_v4_buildable_source.zip" ]; then
+            echo "ERROR: Project ZIP file not found!"
+            exit 1
+          fi
 
-      mkdir -p source
-      unzip -q hesabdari_behzad_v4_buildable_source.zip -d source
+          mkdir -p source
+          unzip -q hesabdari_behzad_v4_buildable_source.zip -d source
 
-  - name: Find Gradle wrapper
-    id: gradle
-    shell: bash
-    run: |
-      WRAPPER=$(find "$GITHUB_WORKSPACE/source" \
-        -type f -name gradlew -print -quit)
+      - name: Find Gradle wrapper
+        id: gradle
+        shell: bash
+        run: |
+          WRAPPER=$(find "$GITHUB_WORKSPACE/source" \
+            -type f -name gradlew -print -quit)
 
-      if [ -z "$WRAPPER" ]; then
-        echo "ERROR: Gradle wrapper not found!"
-        exit 1
-      fi
+          if [ -z "$WRAPPER" ]; then
+            echo "ERROR: Gradle wrapper not found!"
+            exit 1
+          fi
 
-      PROJECT_DIR=$(dirname "$WRAPPER")
+          PROJECT_DIR=$(dirname "$WRAPPER")
 
-      echo "wrapper=$WRAPPER" >> "$GITHUB_OUTPUT"
-      echo "project_dir=$PROJECT_DIR" >> "$GITHUB_OUTPUT"
+          echo "wrapper=$WRAPPER" >> "$GITHUB_OUTPUT"
+          echo "project_dir=$PROJECT_DIR" >> "$GITHUB_OUTPUT"
 
-      echo "Gradle wrapper: $WRAPPER"
-      echo "Project directory: $PROJECT_DIR"
+          echo "Gradle wrapper: $WRAPPER"
+          echo "Project directory: $PROJECT_DIR"
 
-  - name: Build APK
-    shell: bash
-    run: |
-      chmod +x "${{ steps.gradle.outputs.wrapper }}"
+      - name: Build APK
+        shell: bash
+        run: |
+          chmod +x "${{ steps.gradle.outputs.wrapper }}"
 
-      "${{ steps.gradle.outputs.wrapper }}" \
-        -p "${{ steps.gradle.outputs.project_dir }}" \
-        --no-daemon \
-        assembleDebug
+          "${{ steps.gradle.outputs.wrapper }}" \
+            -p "${{ steps.gradle.outputs.project_dir }}" \
+            --no-daemon \
+            assembleDebug
 
-  - name: Verify APK
-    shell: bash
-    run: |
-      APK=$(find source -type f \
-        -path "*/build/outputs/apk/debug/*.apk" \
-        -print -quit)
+      - name: Verify APK
+        shell: bash
+        run: |
+          APK=$(find source -type f \
+            -path "*/build/outputs/apk/debug/*.apk" \
+            -print -quit)
 
-      if [ -z "$APK" ]; then
-        echo "ERROR: APK file was not generated!"
-        exit 1
-      fi
+          if [ -z "$APK" ]; then
+            echo "ERROR: APK file was not generated!"
+            exit 1
+          fi
 
-      echo "APK successfully generated:"
-      ls -lh "$APK"
+          echo "APK successfully generated:"
+          ls -lh "$APK"
 
-  - name: Upload APK
-    uses: actions/upload-artifact@v4
-    with:
-      name: hesabdari-behzad-apk
-      path: source/**/build/outputs/apk/debug/*.apk
-      if-no-files-found: error
-      retention-days: 7
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: hesabdari-behzad-apk
+          path: source/**/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
+          retention-days: 7
