@@ -23,72 +23,124 @@ jobs:
           distribution: temurin
           java-version: '17'
 
+      - name: Install unzip
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y unzip
+
+      - name: Extract source ZIP
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          ZIP_FILE="hesabdari_behzad_v4_buildable_source.zip"
+
+          if [ ! -f "$ZIP_FILE" ]; then
+            echo "ERROR: Source ZIP not found."
+            find . -maxdepth 3 -type f
+            exit 1
+          fi
+
+          mkdir -p "$RUNNER_TEMP/behzad_source"
+          unzip -q "$ZIP_FILE" -d "$RUNNER_TEMP/behzad_source"
+
+          echo "ZIP extracted successfully."
+          find "$RUNNER_TEMP/behzad_source" \
+            -maxdepth 5 -type f | head -300
+
+      - name: Find Android project
+        id: project
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          ROOT="$RUNNER_TEMP/behzad_source"
+
+          SETTINGS="$(find "$ROOT" -type f \
+            \( -name settings.gradle \
+            -o -name settings.gradle.kts \) \
+            -print -quit)"
+
+          if [ -z "$SETTINGS" ]; then
+            echo "ERROR: Gradle settings file not found."
+            find "$ROOT" -maxdepth 6 -type f | head -300
+            exit 1
+          fi
+
+          PROJECT_DIR="$(dirname "$SETTINGS")"
+
+          if [ ! -f "$PROJECT_DIR/app/build.gradle.kts" ] && \
+             [ ! -f "$PROJECT_DIR/app/build.gradle" ]; then
+            echo "ERROR: Android app module not found."
+            find "$PROJECT_DIR" -maxdepth 5 -type f | head -300
+            exit 1
+          fi
+
+          echo "project_dir=$PROJECT_DIR" >> "$GITHUB_OUTPUT"
+          echo "Project directory: $PROJECT_DIR"
+
       - name: Set up Android SDK
-        uses: android-actions/setup-android@v4
+        uses: android-actions/setup-android@v3
 
       - name: Install Android SDK packages
+        shell: bash
         run: |
-          sdkmanager "platform-tools" "platforms;android-35" "build-tools;35.0.0"
+          set -euo pipefail
 
-      - name: Check project ZIP
+          sdkmanager \
+            "platform-tools" \
+            "platforms;android-35" \
+            "build-tools;35.0.0"
+
+      - name: Prepare Gradle
+        working-directory: ${{ steps.project.outputs.project_dir }}
+        shell: bash
         run: |
-          if [ ! -f "hesabdari_behzad_v4_buildable_source.zip" ]; then
-            echo "ERROR: Project ZIP not found in repository root."
-            ls -la
-            exit 1
-          fi
+          set -euo pipefail
 
-      - name: Extract project
-        run: |
-          mkdir -p source
-          unzip -q "hesabdari_behzad_v4_buildable_source.zip" -d source
-          find source -maxdepth 5 -type f | head -200
-
-      - name: Locate Android project
-        run: |
-          PROJECT_DIR=""
-          while IFS= read -r FILE; do
-            PROJECT_DIR="$(dirname "$FILE")"
-            break
-          done < <(find source -type f \( -name settings.gradle -o -name settings.gradle.kts \) -print)
-
-          if [ -z "$PROJECT_DIR" ]; then
-            echo "ERROR: Android Gradle project not found in ZIP."
-            find source -maxdepth 5 -type f | head -300
-            exit 1
-          fi
-
-          echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
-          echo "Android project directory: $PROJECT_DIR"
-
-      - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@v4
-        with:
-          gradle-version: '8.10.2'
-
-      - name: Build debug APK
-        run: |
-          cd "$PROJECT_DIR"
-
-          if [ -f "./gradlew" ]; then
-            chmod +x ./gradlew
-            ./gradlew --no-daemon assembleDebug
+          if [ -f gradlew ]; then
+            chmod +x gradlew
+            echo "Using Gradle Wrapper."
           else
-            gradle --no-daemon assembleDebug
+            echo "ERROR: gradlew is missing."
+            find . -maxdepth 4 -type f | head -200
+            exit 1
           fi
 
-      - name: Verify APK
+      - name: Build Android APK
+        working-directory: ${{ steps.project.outputs.project_dir }}
+        shell: bash
         run: |
-          APK="$(find source -type f -path '*/build/outputs/apk/debug/*.apk' -print -quit)"
+          set -euo pipefail
+          ./gradlew --no-daemon assembleDebug
+
+      - name: Find APK
+        id: apk
+        working-directory: ${{ steps.project.outputs.project_dir }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          APK="$(find . -type f \
+            -path '*/build/outputs/apk/*/*.apk' \
+            ! -path '*/androidTest/*' \
+            -print -quit)"
 
           if [ -z "$APK" ]; then
             echo "ERROR: APK was not generated."
-            find source -type f -path '*/build/*' | head -200
+            find . -type f -name '*.apk'
             exit 1
           fi
 
-          echo "APK_PATH=$APK" >> "$GITHUB_ENV"
-          echo "APK generated successfully: $APK"
+          mkdir -p "$RUNNER_TEMP/behzad_apk"
+
+          cp "$APK" \
+            "$RUNNER_TEMP/behzad_apk/hesabdari-behzad-debug.apk"
+
+          echo "APK_PATH=$RUNNER_TEMP/behzad_apk/hesabdari-behzad-debug.apk" \
+            >> "$GITHUB_ENV"
+
+          echo "APK found successfully."
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
