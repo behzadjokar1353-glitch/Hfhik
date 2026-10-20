@@ -1,10 +1,10 @@
 name: Build Android APK
 
 on:
+  workflow_dispatch:
   push:
     branches:
       - main
-  workflow_dispatch:
 
 permissions:
   contents: read
@@ -25,32 +25,34 @@ jobs:
 
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
+        with:
+          packages: ''
 
       - name: Install Android SDK packages
+        shell: bash
         run: |
+          set -euo pipefail
+
+          yes | sdkmanager --licenses || true
+
           sdkmanager --install \
             "platform-tools" \
             "platforms;android-35" \
             "build-tools;35.0.0"
 
-      - name: Set up Gradle 8.9
+      - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.9'
 
-      - name: Extract project ZIP if present
+      - name: Extract source ZIP
         shell: bash
         run: |
           set -euo pipefail
 
           if [ -f "hesabdari_behzad_v4_buildable_source.zip" ]; then
             mkdir -p source
-            unzip -oq \
-              "hesabdari_behzad_v4_buildable_source.zip" \
-              -d source
-            echo "Project ZIP extracted."
-          else
-            echo "Project ZIP not found; checking repository files."
+            unzip -oq "hesabdari_behzad_v4_buildable_source.zip" -d source
           fi
 
       - name: Find Android project
@@ -62,27 +64,25 @@ jobs:
           ROOT=""
 
           for BASE in source .; do
-            if [ -d "$BASE" ]; then
-              while IFS= read -r FILE; do
-                CANDIDATE="${FILE%/app/build.gradle.kts}"
+            [ -d "$BASE" ] || continue
 
-                if [ -f "$CANDIDATE/settings.gradle.kts" ] || \
-                   [ -f "$CANDIDATE/settings.gradle" ]; then
-                  ROOT="$CANDIDATE"
-                  break
-                fi
-              done < <(
-                find "$BASE" \
-                  -type f \
-                  -path '*/app/build.gradle.kts' \
-                  -not -path '*/.git/*' \
-                  -print
-              )
-            fi
+            while IFS= read -r FILE; do
+              CANDIDATE="${FILE%/app/build.gradle.kts}"
 
-            if [ -n "$ROOT" ]; then
-              break
-            fi
+              if [ -f "$CANDIDATE/settings.gradle.kts" ] || \
+                 [ -f "$CANDIDATE/settings.gradle" ]; then
+                ROOT="$CANDIDATE"
+                break
+              fi
+            done < <(
+              find "$BASE" \
+                -type f \
+                -path '*/app/build.gradle.kts' \
+                -not -path '*/.git/*' \
+                -print
+            )
+
+            [ -n "$ROOT" ] && break
           done
 
           if [ -z "$ROOT" ]; then
@@ -95,7 +95,7 @@ jobs:
           echo "root=$ROOT" >> "$GITHUB_OUTPUT"
           echo "Project root: $ROOT"
 
-      - name: Align Java and Kotlin JVM targets
+      - name: Configure Java and Kotlin JVM 17
         shell: bash
         env:
           PROJECT_ROOT: ${{ steps.project.outputs.root }}
@@ -104,17 +104,13 @@ jobs:
 
           FILE="$PROJECT_ROOT/app/build.gradle.kts"
 
-          if [ ! -f "$FILE" ]; then
-            echo "ERROR: Module Gradle file not found: $FILE"
-            exit 1
-          fi
-
           python3 - "$FILE" <<'PY'
           import sys
           from pathlib import Path
 
           path = Path(sys.argv[1])
           content = path.read_text(encoding="utf-8")
+
           marker = "// CI_JVM17_CONFIGURATION"
 
           if marker not in content:
@@ -126,10 +122,9 @@ jobs:
                   sourceCompatibility = JavaVersion.VERSION_17
                   targetCompatibility = JavaVersion.VERSION_17
               }
-          }
-
-          kotlinOptions {
-              jvmTarget = "17"
+              kotlinOptions {
+                  jvmTarget = "17"
+              }
           }
 
           tasks.withType<org.gradle.api.tasks.compile.JavaCompile>().configureEach {
@@ -138,9 +133,8 @@ jobs:
           }
           """
               path.write_text(content, encoding="utf-8")
-              print("Java/Kotlin JVM targets set to 17.")
-          else:
-              print("JVM configuration already applied.")
+
+          print("JVM target configuration checked.")
           PY
 
       - name: Build debug APK
@@ -158,14 +152,14 @@ jobs:
             gradle --no-daemon assembleDebug
           fi
 
-          APK="app/build/outputs/apk/debug/app-debug.apk"
+          APK="$PROJECT_ROOT/app/build/outputs/apk/debug/app-debug.apk"
 
           if [ ! -f "$APK" ]; then
-            echo "ERROR: APK was not generated at $APK"
+            echo "ERROR: APK file was not generated."
             exit 1
           fi
 
-          echo "APK successfully generated: $APK"
+          echo "APK generated successfully."
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
