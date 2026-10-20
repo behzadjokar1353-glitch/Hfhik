@@ -1,118 +1,29 @@
-
-name: Build Android APK
-
-on:
-  workflow_dispatch:
-  push:
-    branches:
-      - main
-
-permissions:
-  contents: read
-
-jobs:
-  build:
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Set up Java 17
-        uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: '17'
-
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v4
-        with:
-          packages: ''
-
-      - name: Install Android SDK packages
-        run: |
-          yes | sdkmanager --licenses
-          sdkmanager "platform-tools" "platforms;android-35" "build-tools;35.0.0"
-
-      - name: Extract project ZIP if present
+ - name: Align Java and Kotlin JVM targets
         shell: bash
-        run: |
-          if [ -f "hesabdari_behzad_v4_buildable_source.zip" ]; then
-            mkdir -p source
-            unzip -oq "hesabdari_behzad_v4_buildable_source.zip" -d source
-          fi
-
-      - name: Locate Android project
-        id: project
-        shell: bash
-        run: |
-          ROOT=""
-
-          if [ -f "settings.gradle.kts" ] || [ -f "settings.gradle" ]; then
-            if [ -d "app" ]; then
-              ROOT="."
-            fi
-          fi
-
-          if [ -z "$ROOT" ]; then
-            for f in source/settings.gradle.kts source/settings.gradle; do
-              if [ -f "$f" ] && [ -d "$(dirname "$f")/app" ]; then
-                ROOT="$(dirname "$f")"
-                break
-              fi
-            done
-          fi
-
-          if [ -z "$ROOT" ]; then
-            echo "ERROR: Android project root not found."
-            echo "Files and folders in repository:"
-            find . -maxdepth 4 -type f | head -200
-            exit 1
-          fi
-
-          echo "root=$ROOT" >> "$GITHUB_OUTPUT"
-          echo "Android project found at: $ROOT"
-          ls -la "$ROOT"
-
-      - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@v4
-
-      - name: Build debug APK
-        shell: bash
-        working-directory: .
         env:
           PROJECT_ROOT: ${{ steps.project.outputs.root }}
         run: |
-          cd "$PROJECT_ROOT"
+          FILE="$PROJECT_ROOT/app/build.gradle.kts"
 
-          if [ -f "gradlew" ]; then
-            chmod +x gradlew
-            ./gradlew --no-daemon assembleDebug
-          else
-            echo "Gradle wrapper not found; using installed Gradle."
-            gradle --no-daemon assembleDebug
-          fi
-
-      - name: Find APK
-        id: apk
-        shell: bash
-        run: |
-          APK="$(find . -type f -path '*/build/outputs/apk/debug/*.apk' \
-            -not -path '*/.gradle/*' | head -1)"
-
-          if [ -z "$APK" ]; then
-            echo "ERROR: APK was not generated."
-            find . -type f -name '*.apk'
+          if [ ! -f "$FILE" ]; then
+            echo "ERROR: Module Gradle file not found: $FILE"
             exit 1
           fi
 
-          echo "path=$APK" >> "$GITHUB_OUTPUT"
-          echo "APK found: $APK"
+          cat >> "$FILE" <<'EOF'
 
-      - name: Upload APK
-        uses: actions/upload-artifact@v4
-        with:
-          name: Hesabdari-Behzad-debug-APK
-          path: ${{ steps.apk.outputs.path }}
-          if-no-files-found: error
-          retention-days: 14
+          android {
+              compileOptions {
+                  sourceCompatibility = JavaVersion.VERSION_17
+                  targetCompatibility = JavaVersion.VERSION_17
+              }
+              kotlinOptions {
+                  jvmTarget = "17"
+              }
+          }
+
+          tasks.withType<org.gradle.api.tasks.compile.JavaCompile>().configureEach {
+              sourceCompatibility = "17"
+              targetCompatibility = "17"
+          }
+          EOF
