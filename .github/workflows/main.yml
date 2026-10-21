@@ -25,16 +25,12 @@ steps:
 
   - name: Set up Android SDK
     uses: android-actions/setup-android@v3
-    with:
-      packages: ''
 
   - name: Install Android SDK packages
     shell: bash
     run: |
       set -euo pipefail
-
       yes | sdkmanager --licenses || true
-
       sdkmanager --install \
         "platform-tools" \
         "platforms;android-35" \
