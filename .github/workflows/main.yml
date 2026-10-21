@@ -1,170 +1,175 @@
 name: Build Android APK
 
 on:
-  workflow_dispatch:
-  push:
-    branches:
-      - main
+workflow_dispatch:
+push:
+branches:
+- main
 
 permissions:
-  contents: read
+contents: read
 
 jobs:
-  build:
-    runs-on: ubuntu-latest
+build:
+runs-on: ubuntu-latest
 
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+steps:
+  - name: Checkout repository
+    uses: actions/checkout@v4
 
-      - name: Set up Java 17
-        uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: '17'
+  - name: Set up Java 17
+    uses: actions/setup-java@v4
+    with:
+      distribution: temurin
+      java-version: '17'
 
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
-        with:
-          packages: ''
+  - name: Set up Android SDK
+    uses: android-actions/setup-android@v3
+    with:
+      packages: ''
 
-      - name: Install Android SDK packages
-        shell: bash
-        run: |
-          set -euo pipefail
+  - name: Install Android SDK packages
+    shell: bash
+    run: |
+      set -euo pipefail
 
-          yes | sdkmanager --licenses || true
+      yes | sdkmanager --licenses || true
 
-          sdkmanager --install \
-            "platform-tools" \
-            "platforms;android-35" \
-            "build-tools;35.0.0"
+      sdkmanager --install \
+        "platform-tools" \
+        "platforms;android-35" \
+        "build-tools;35.0.0"
 
-      - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@v4
-        with:
-          gradle-version: '8.9'
+  - name: Set up Gradle
+    uses: gradle/actions/setup-gradle@v4
+    with:
+      gradle-version: '8.9'
 
-      - name: Extract source ZIP
-        shell: bash
-        run: |
-          set -euo pipefail
+  - name: Extract source ZIP
+    shell: bash
+    run: |
+      set -euo pipefail
 
-          if [ -f "hesabdari_behzad_v4_buildable_source.zip" ]; then
-            mkdir -p source
-            unzip -oq "hesabdari_behzad_v4_buildable_source.zip" -d source
+      ZIP_FILE="hesabdari_behzad_v5_dashboard_source.zip"
+
+      if [ ! -f "$ZIP_FILE" ]; then
+        echo "ERROR: Version 5 source ZIP not found."
+        exit 1
+      fi
+
+      mkdir -p source
+      unzip -oq "$ZIP_FILE" -d source
+
+  - name: Find Android project
+    id: project
+    shell: bash
+    run: |
+      set -euo pipefail
+
+      ROOT=""
+
+      for BASE in source .; do
+        [ -d "$BASE" ] || continue
+
+        while IFS= read -r FILE; do
+          CANDIDATE="${FILE%/app/build.gradle.kts}"
+
+          if [ -f "$CANDIDATE/settings.gradle.kts" ] || \
+             [ -f "$CANDIDATE/settings.gradle" ]; then
+            ROOT="$CANDIDATE"
+            break
           fi
+        done < <(
+          find "$BASE" \
+            -type f \
+            -path '*/app/build.gradle.kts' \
+            -not -path '*/.git/*' \
+            -print
+        )
 
-      - name: Find Android project
-        id: project
-        shell: bash
-        run: |
-          set -euo pipefail
+        [ -n "$ROOT" ] && break
+      done
 
-          ROOT=""
+      if [ -z "$ROOT" ]; then
+        echo "ERROR: Android project not found."
+        echo "Expected app/build.gradle.kts and settings.gradle.kts."
+        exit 1
+      fi
 
-          for BASE in source .; do
-            [ -d "$BASE" ] || continue
+      ROOT="$(realpath "$ROOT")"
+      echo "root=$ROOT" >> "$GITHUB_OUTPUT"
+      echo "Project root: $ROOT"
 
-            while IFS= read -r FILE; do
-              CANDIDATE="${FILE%/app/build.gradle.kts}"
+  - name: Configure Java and Kotlin JVM 17
+    shell: bash
+    env:
+      PROJECT_ROOT: ${{ steps.project.outputs.root }}
+    run: |
+      set -euo pipefail
 
-              if [ -f "$CANDIDATE/settings.gradle.kts" ] || \
-                 [ -f "$CANDIDATE/settings.gradle" ]; then
-                ROOT="$CANDIDATE"
-                break
-              fi
-            done < <(
-              find "$BASE" \
-                -type f \
-                -path '*/app/build.gradle.kts' \
-                -not -path '*/.git/*' \
-                -print
-            )
+      FILE="$PROJECT_ROOT/app/build.gradle.kts"
 
-            [ -n "$ROOT" ] && break
-          done
+      python3 - "$FILE" <<'PY'
+      import sys
+      from pathlib import Path
 
-          if [ -z "$ROOT" ]; then
-            echo "ERROR: Android project not found."
-            echo "Expected app/build.gradle.kts and settings.gradle.kts."
-            exit 1
-          fi
+      path = Path(sys.argv[1])
+      content = path.read_text(encoding="utf-8")
 
-          ROOT="$(realpath "$ROOT")"
-          echo "root=$ROOT" >> "$GITHUB_OUTPUT"
-          echo "Project root: $ROOT"
+      marker = "// CI_JVM17_CONFIGURATION"
 
-      - name: Configure Java and Kotlin JVM 17
-        shell: bash
-        env:
-          PROJECT_ROOT: ${{ steps.project.outputs.root }}
-        run: |
-          set -euo pipefail
+      if marker not in content:
+          content += """
 
-          FILE="$PROJECT_ROOT/app/build.gradle.kts"
-
-          python3 - "$FILE" <<'PY'
-          import sys
-          from pathlib import Path
-
-          path = Path(sys.argv[1])
-          content = path.read_text(encoding="utf-8")
-
-          marker = "// CI_JVM17_CONFIGURATION"
-
-          if marker not in content:
-              content += """
-
-          // CI_JVM17_CONFIGURATION
-          android {
-              compileOptions {
-                  sourceCompatibility = JavaVersion.VERSION_17
-                  targetCompatibility = JavaVersion.VERSION_17
-              }
-              kotlinOptions {
-                  jvmTarget = "17"
-              }
+      // CI_JVM17_CONFIGURATION
+      android {
+          compileOptions {
+              sourceCompatibility = JavaVersion.VERSION_17
+              targetCompatibility = JavaVersion.VERSION_17
           }
-
-          tasks.withType<org.gradle.api.tasks.compile.JavaCompile>().configureEach {
-              sourceCompatibility = "17"
-              targetCompatibility = "17"
+          kotlinOptions {
+              jvmTarget = "17"
           }
-          """
-              path.write_text(content, encoding="utf-8")
+      }
 
-          print("JVM target configuration checked.")
-          PY
+      tasks.withType<org.gradle.api.tasks.compile.JavaCompile>().configureEach {
+          sourceCompatibility = "17"
+          targetCompatibility = "17"
+      }
+      """
+          path.write_text(content, encoding="utf-8")
 
-      - name: Build debug APK
-        shell: bash
-        env:
-          PROJECT_ROOT: ${{ steps.project.outputs.root }}
-        run: |
-          set -euo pipefail
-          cd "$PROJECT_ROOT"
+      print("JVM target configuration checked.")
+      PY
 
-          if [ -f "./gradlew" ]; then
-            chmod +x ./gradlew
-            ./gradlew --no-daemon assembleDebug
-          else
-            gradle --no-daemon assembleDebug
-          fi
+  - name: Build debug APK
+    shell: bash
+    env:
+      PROJECT_ROOT: ${{ steps.project.outputs.root }}
+    run: |
+      set -euo pipefail
+      cd "$PROJECT_ROOT"
 
-          APK="$PROJECT_ROOT/app/build/outputs/apk/debug/app-debug.apk"
+      if [ -f "./gradlew" ]; then
+        chmod +x ./gradlew
+        ./gradlew --no-daemon assembleDebug
+      else
+        gradle --no-daemon assembleDebug
+      fi
 
-          if [ ! -f "$APK" ]; then
-            echo "ERROR: APK file was not generated."
-            exit 1
-          fi
+      APK="$PROJECT_ROOT/app/build/outputs/apk/debug/app-debug.apk"
 
-          echo "APK generated successfully."
+      if [ ! -f "$APK" ]; then
+        echo "ERROR: APK file was not generated."
+        exit 1
+      fi
 
-      - name: Upload APK
-        uses: actions/upload-artifact@v4
-        with:
-          name: hesabdari-behzad-debug-apk
-          path: ${{ steps.project.outputs.root }}/app/build/outputs/apk/debug/app-debug.apk
-          if-no-files-found: error
-          retention-days: 7
+      echo "APK generated successfully."
+
+  - name: Upload APK
+    uses: actions/upload-artifact@v4
+    with:
+      name: hesabdari-behzad-debug-apk
+      path: ${{ steps.project.outputs.root }}/app/build/outputs/apk/debug/app-debug.apk
+      if-no-files-found: error
+      retention-days: 7
