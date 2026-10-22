@@ -128,6 +128,31 @@ jobs:
           echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
           echo "Validated Gradle project: $PROJECT_DIR"
 
+      - name: Configure JVM target 17
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          cat > "$GITHUB_WORKSPACE/jvm17.init.gradle" <<'GRADLE'
+          gradle.projectsEvaluated {
+              allprojects {
+                  tasks.withType(org.gradle.api.tasks.compile.JavaCompile).configureEach {
+                      sourceCompatibility = '17'
+                      targetCompatibility = '17'
+                  }
+
+                  tasks.configureEach { task ->
+                      if (task.name.toLowerCase().contains('kotlin') &&
+                          task.hasProperty('kotlinOptions')) {
+                          task.kotlinOptions.jvmTarget = '17'
+                      }
+                  }
+              }
+          }
+          GRADLE
+
+          echo "JVM target override file created."
+
       - name: Build debug APK
         shell: bash
         run: |
@@ -135,12 +160,24 @@ jobs:
 
           cd "$PROJECT_DIR"
 
+          echo "Building project at: $PROJECT_DIR"
+          echo "Checking Android module configuration:"
+          if [ -f "app/build.gradle.kts" ]; then
+            sed -n '1,240p' app/build.gradle.kts
+          elif [ -f "app/build.gradle" ]; then
+            sed -n '1,240p' app/build.gradle
+          fi
+
           if [ -f "./gradlew" ]; then
             chmod +x ./gradlew
-            ./gradlew --no-daemon --stacktrace assembleDebug
+            ./gradlew --no-daemon --stacktrace \
+              -I "$GITHUB_WORKSPACE/jvm17.init.gradle" \
+              assembleDebug
           else
             echo "Gradle wrapper not found; using installed Gradle 8.9."
-            gradle --no-daemon --stacktrace assembleDebug
+            gradle --no-daemon --stacktrace \
+              -I "$GITHUB_WORKSPACE/jvm17.init.gradle" \
+              assembleDebug
           fi
 
           APK_DIR="$PROJECT_DIR/app/build/outputs/apk/debug"
