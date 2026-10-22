@@ -1,1 +1,93 @@
+name: Build Hesabdari Behzad APK
 
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK packages
+        run: |
+          sdkmanager --install \
+            "platform-tools" \
+            "platforms;android-35" \
+            "build-tools;35.0.0"
+
+      - name: Install unzip
+        run: sudo apt-get update && sudo apt-get install -y unzip
+
+      - name: Find and extract source ZIP
+        run: |
+          ZIP_FILE=$(find . -maxdepth 2 -type f \
+            -name 'hesabdari_behzad_v4_buildable_source.zip' \
+            -print -quit)
+
+          if [ -z "$ZIP_FILE" ]; then
+            echo "ERROR: Source ZIP not found in repository."
+            echo "ZIP files available:"
+            find . -type f -name '*.zip'
+            exit 1
+          fi
+
+          mkdir -p source
+          unzip -q "$ZIP_FILE" -d source
+
+      - name: Locate Gradle project
+        run: |
+          GRADLE_FILE=$(find source -type f \
+            -name settings.gradle.kts -print -quit)
+
+          if [ -z "$GRADLE_FILE" ]; then
+            GRADLE_FILE=$(find source -type f \
+              -name settings.gradle -print -quit)
+          fi
+
+          if [ -z "$GRADLE_FILE" ]; then
+            echo "ERROR: Gradle settings file not found."
+            find source -maxdepth 4 -type f
+            exit 1
+          fi
+
+          PROJECT_DIR=$(dirname "$GRADLE_FILE")
+          echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
+          echo "Project found: $PROJECT_DIR"
+
+      - name: Build debug APK
+        run: |
+          cd "$PROJECT_DIR"
+
+          if [ -f ./gradlew ]; then
+            chmod +x ./gradlew
+            ./gradlew --no-daemon assembleDebug
+          else
+            echo "ERROR: Gradle wrapper not found."
+            exit 1
+          fi
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: hesabdari-behzad-debug-apk
+          path: ${{ env.PROJECT_DIR }}/app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
+ 
