@@ -51,8 +51,7 @@ jobs:
           ZIP_FILE="$(find "$GITHUB_WORKSPACE" \
             -maxdepth 3 \
             -type f \
-            -name 'hesabdari_behzad_v4_buildable_source.zip' \
-            -print -quit)"
+            -name 'hesabdari_behzad_v4_3_9_scenario_reviewed.zip'
 
           if [ -z "$ZIP_FILE" ]; then
             echo "::error::Source ZIP not found in repository."
