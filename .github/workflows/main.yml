@@ -60,9 +60,7 @@ jobs:
 
           for NAME in \
             "hesabdari_behzad_v4_3_9_scenario_reviewed.zip" \
-            "hesabdari_behzad_v4_scenario_reviewed.zip" \
-            "hesabdari_behzad_v4_buildable_source.zip"
-          do
+            "hesabdari_behzad_v4_3_9_scenario_reviewed1.zip" \
             ZIP_FILE="$(find "$GITHUB_WORKSPACE" \
               -maxdepth 5 \
               -type f \
