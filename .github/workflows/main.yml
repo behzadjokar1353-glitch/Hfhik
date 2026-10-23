@@ -23,33 +23,16 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@v4
-        with:
-          gradle-version: '8.9'
-
       - name: Set up Android SDK
-        uses: android-actions/setup-android@v4
-
-      - name: Accept Android SDK licenses
-        shell: bash
-        run: |
-          set -euo pipefail
-          yes | sdkmanager --licenses >/dev/null || true
+        uses: android-actions/setup-android@v3
 
       - name: Install Android SDK packages
-        shell: bash
         run: |
           set -euo pipefail
           sdkmanager --install \
             "platform-tools" \
             "platforms;android-35" \
             "build-tools;35.0.0"
-
-      - name: Install unzip
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y unzip
 
       - name: Find and extract source ZIP
         shell: bash
@@ -60,7 +43,8 @@ jobs:
 
           for NAME in \
             "hesabdari_behzad_v4_3_9_scenario_reviewed.zip" \
-            "hesabdari_behzad_v4_3_9_scenario_reviewed1.zip" \
+            "hesabdari_behzad_v4_3_9_scenario_reviewed1.zip"
+          do
             ZIP_FILE="$(find "$GITHUB_WORKSPACE" \
               -maxdepth 5 \
               -type f \
@@ -75,7 +59,9 @@ jobs:
           if [ -z "$ZIP_FILE" ]; then
             echo "::error::Source ZIP not found."
             find "$GITHUB_WORKSPACE" \
-              -maxdepth 5 -type f -name '*.zip' -print
+              -maxdepth 5 \
+              -type f \
+              -name '*.zip' -print
             exit 1
           fi
 
@@ -88,117 +74,91 @@ jobs:
           find "$GITHUB_WORKSPACE/source" \
             -maxdepth 5 -type f -print | head -200
 
-      - name: Locate and validate Gradle project
+      - name: Locate Android project
+        id: locate
         shell: bash
         run: |
           set -euo pipefail
 
-          SOURCE_DIR="$GITHUB_WORKSPACE/source"
+          PROJECT_DIR=""
 
-          SETTINGS_FILE="$(find "$SOURCE_DIR" \
-            -type f \
-            \( -name 'settings.gradle.kts' \
-            -o -name 'settings.gradle' \) \
-            -print -quit)"
+          while IFS= read -r FILE; do
+            DIR="$(dirname "$FILE")"
 
-          if [ -z "$SETTINGS_FILE" ]; then
-            echo "::error::Gradle settings file was not found in the ZIP."
+            if [ -f "$DIR/app/build.gradle.kts" ] || \
+               [ -f "$DIR/app/build.gradle" ]; then
+              PROJECT_DIR="$DIR"
+              break
+            fi
+          done < <(
+            find "$GITHUB_WORKSPACE/source" \
+              -maxdepth 7 \
+              -type f \
+              \( -name settings.gradle.kts \
+                 -o -name settings.gradle \) \
+              -print
+          )
+
+          if [ -z "$PROJECT_DIR" ]; then
+            echo "::error::Android project with app module not found."
+            echo "Searching for Gradle files:"
+            find "$GITHUB_WORKSPACE/source" \
+              -maxdepth 7 -type f \
+              \( -name '*.gradle' \
+                 -o -name '*.gradle.kts' \) -print
             exit 1
           fi
 
-          PROJECT_DIR="$(dirname "$SETTINGS_FILE")"
-
-          if [ ! -f "$PROJECT_DIR/app/build.gradle.kts" ] && \
-             [ ! -f "$PROJECT_DIR/app/build.gradle" ]; then
-            echo "::error::The app module build file is missing."
-            echo "Project directory: $PROJECT_DIR"
-            find "$PROJECT_DIR" -maxdepth 5 -type f -print
-            exit 1
-          fi
-
-          if ! grep -Eq 'include\(.*:app|include.*:app' \
-            "$SETTINGS_FILE"; then
-            echo "::error::The settings file does not include the app module."
-            cat "$SETTINGS_FILE"
-            exit 1
-          fi
-
-          echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
-          echo "Validated Gradle project: $PROJECT_DIR"
-
-      - name: Configure JVM target 17
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          cat > "$GITHUB_WORKSPACE/jvm17.init.gradle" <<'GRADLE'
-          gradle.projectsEvaluated {
-              allprojects {
-                  tasks.withType(org.gradle.api.tasks.compile.JavaCompile).configureEach {
-                      sourceCompatibility = '17'
-                      targetCompatibility = '17'
-                  }
-
-                  tasks.configureEach { task ->
-                      if (task.name.toLowerCase().contains('kotlin') &&
-                          task.hasProperty('kotlinOptions')) {
-                          task.kotlinOptions.jvmTarget = '17'
-                      }
-                  }
-              }
-          }
-          GRADLE
-
-          echo "JVM target override file created."
+          echo "Project directory: $PROJECT_DIR"
+          echo "project_dir=$PROJECT_DIR" >> "$GITHUB_OUTPUT"
 
       - name: Build debug APK
         shell: bash
+        working-directory: .
+        env:
+          PROJECT_DIR: ${{ steps.locate.outputs.project_dir }}
         run: |
           set -euo pipefail
 
           cd "$PROJECT_DIR"
 
-          echo "Building project at: $PROJECT_DIR"
-          echo "Checking Android module configuration:"
-          if [ -f "app/build.gradle.kts" ]; then
-            sed -n '1,240p' app/build.gradle.kts
-          elif [ -f "app/build.gradle" ]; then
-            sed -n '1,240p' app/build.gradle
-          fi
-
           if [ -f "./gradlew" ]; then
             chmod +x ./gradlew
-            ./gradlew --no-daemon --stacktrace \
-              -I "$GITHUB_WORKSPACE/jvm17.init.gradle" \
-              assembleDebug
+            ./gradlew --no-daemon assembleDebug
           else
-            echo "Gradle wrapper not found; using installed Gradle 8.9."
-            gradle --no-daemon --stacktrace \
-              -I "$GITHUB_WORKSPACE/jvm17.init.gradle" \
-              assembleDebug
+            echo "Gradle wrapper not found; installing Gradle 8.9."
+            sudo apt-get update
+            sudo apt-get install -y unzip
+            wget -q \
+              https://services.gradle.org/distributions/gradle-8.9-bin.zip \
+              -O /tmp/gradle-8.9-bin.zip
+            sudo unzip -q /tmp/gradle-8.9-bin.zip -d /opt
+            /opt/gradle-8.9/bin/gradle \
+              --no-daemon assembleDebug
           fi
 
-          APK_DIR="$PROJECT_DIR/app/build/outputs/apk/debug"
+      - name: Verify APK
+        shell: bash
+        env:
+          PROJECT_DIR: ${{ steps.locate.outputs.project_dir }}
+        run: |
+          set -euo pipefail
 
-          if [ ! -d "$APK_DIR" ]; then
-            echo "::error::APK output directory was not created."
+          APK="$(find "$PROJECT_DIR/app/build/outputs/apk" \
+            -type f -name '*.apk' -print -quit)"
+
+          if [ -z "$APK" ]; then
+            echo "::error::APK was not generated."
             exit 1
           fi
 
-          APK_FILE="$(find "$APK_DIR" \
-            -maxdepth 1 -type f -name '*.apk' -print -quit)"
-
-          if [ -z "$APK_FILE" ]; then
-            echo "::error::Build finished without generating an APK."
-            exit 1
-          fi
-
-          echo "APK generated: $APK_FILE"
+          echo "APK generated successfully: $APK"
+          ls -lh "$APK"
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: hesabdari-behzad-debug-apk
-          path: source/**/app/build/outputs/apk/debug/*.apk
+          name: Hesabdari-Behzad-APK
+          path: ${{ steps.locate.outputs.project_dir }}/app/build/outputs/apk/**/*.apk
           if-no-files-found: error
           retention-days: 14
