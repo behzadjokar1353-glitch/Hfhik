@@ -23,142 +23,124 @@ jobs:
           distribution: temurin
           java-version: '17'
 
+      - name: Install required tools
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y unzip curl
+
       - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
+        uses: android-actions/setup-android@v4
+        with:
+          packages: |
+            platform-tools
+            platforms;android-35
+            build-tools;35.0.0
 
-      - name: Install Android SDK packages
-        run: |
-          set -euo pipefail
-          sdkmanager --install \
-            "platform-tools" \
-            "platforms;android-35" \
-            "build-tools;35.0.0"
-
-      - name: Find and extract source ZIP
-        shell: bash
+      - name: Verify and extract project ZIP
         run: |
           set -euo pipefail
 
-          ZIP_FILE=""
+          ZIP_FILE="hesabdari_behzad_v4_buildable_source.zip"
 
-          for NAME in \
-            "hesabdari_behzad_v4_3_9_scenario_reviewed.zip" \
-            "hesabdari_behzad_v4_3_9_scenario_reviewed1.zip"
-          do
-            ZIP_FILE="$(find "$GITHUB_WORKSPACE" \
-              -maxdepth 5 \
-              -type f \
-              -name "$NAME" \
-              -print -quit)"
-
-            if [ -n "$ZIP_FILE" ]; then
-              break
-            fi
-          done
-
-          if [ -z "$ZIP_FILE" ]; then
-            echo "::error::Source ZIP not found."
-            find "$GITHUB_WORKSPACE" \
-              -maxdepth 5 \
-              -type f \
-              -name '*.zip' -print
+          if [ ! -f "$ZIP_FILE" ]; then
+            echo "::error::Project ZIP not found: $ZIP_FILE"
+            echo "Files in repository root:"
+            ls -la
             exit 1
           fi
 
-          echo "Using source ZIP: $ZIP_FILE"
+          mkdir -p source
+          unzip -q -o "$ZIP_FILE" -d source
 
-          mkdir -p "$GITHUB_WORKSPACE/source"
-          unzip -q "$ZIP_FILE" -d "$GITHUB_WORKSPACE/source"
-
-          echo "Extracted files:"
-          find "$GITHUB_WORKSPACE/source" \
-            -maxdepth 5 -type f -print | head -200
+          echo "Extracted project files:"
+          find source -maxdepth 3 -type f \
+            \( -name "settings.gradle" \
+            -o -name "settings.gradle.kts" \
+            -o -name "build.gradle" \
+            -o -name "build.gradle.kts" \
+            -o -name "gradlew" \) -print
 
       - name: Locate Android project
-        id: locate
-        shell: bash
+        id: project
         run: |
           set -euo pipefail
 
-          PROJECT_DIR=""
+          SETTINGS_FILE="$(find source -type f \
+            \( -name settings.gradle.kts \
+            -o -name settings.gradle \) \
+            -print -quit)"
 
-          while IFS= read -r FILE; do
-            DIR="$(dirname "$FILE")"
-
-            if [ -f "$DIR/app/build.gradle.kts" ] || \
-               [ -f "$DIR/app/build.gradle" ]; then
-              PROJECT_DIR="$DIR"
-              break
-            fi
-          done < <(
-            find "$GITHUB_WORKSPACE/source" \
-              -maxdepth 7 \
-              -type f \
-              \( -name settings.gradle.kts \
-                 -o -name settings.gradle \) \
-              -print
-          )
-
-          if [ -z "$PROJECT_DIR" ]; then
-            echo "::error::Android project with app module not found."
-            echo "Searching for Gradle files:"
-            find "$GITHUB_WORKSPACE/source" \
-              -maxdepth 7 -type f \
-              \( -name '*.gradle' \
-                 -o -name '*.gradle.kts' \) -print
+          if [ -z "$SETTINGS_FILE" ]; then
+            echo "::error::Gradle settings file not found in ZIP"
             exit 1
           fi
 
-          echo "Project directory: $PROJECT_DIR"
-          echo "project_dir=$PROJECT_DIR" >> "$GITHUB_OUTPUT"
+          PROJECT_DIR="$(dirname "$SETTINGS_FILE")"
 
-      - name: Build debug APK
-        shell: bash
-        working-directory: .
-        env:
-          PROJECT_DIR: ${{ steps.locate.outputs.project_dir }}
+          if [ ! -f "$PROJECT_DIR/app/build.gradle.kts" ] \
+            && [ ! -f "$PROJECT_DIR/app/build.gradle" ]; then
+            echo "::error::Android app module not found at $PROJECT_DIR/app"
+            find "$PROJECT_DIR" -maxdepth 3 -type f -print
+            exit 1
+          fi
+
+          echo "project_dir=$PROJECT_DIR" >> "$GITHUB_OUTPUT"
+          echo "Android project: $PROJECT_DIR"
+
+      - name: Prepare Gradle
+        working-directory: ${{ steps.project.outputs.project_dir }}
         run: |
           set -euo pipefail
 
-          cd "$PROJECT_DIR"
-
-          if [ -f "./gradlew" ]; then
+          if [ -f ./gradlew ]; then
             chmod +x ./gradlew
-            ./gradlew --no-daemon assembleDebug
+            echo "Using project Gradle wrapper."
           else
             echo "Gradle wrapper not found; installing Gradle 8.9."
-            sudo apt-get update
-            sudo apt-get install -y unzip
-            wget -q \
+            curl -fsSL \
               https://services.gradle.org/distributions/gradle-8.9-bin.zip \
-              -O /tmp/gradle-8.9-bin.zip
-            sudo unzip -q /tmp/gradle-8.9-bin.zip -d /opt
+              -o /tmp/gradle-8.9-bin.zip
+            sudo unzip -q -o /tmp/gradle-8.9-bin.zip -d /opt
+            echo "/opt/gradle-8.9/bin" >> "$GITHUB_PATH"
+          fi
+
+      - name: Build Debug APK
+        working-directory: ${{ steps.project.outputs.project_dir }}
+        run: |
+          set -euo pipefail
+
+          if [ -f ./gradlew ]; then
+            ./gradlew --no-daemon assembleDebug
+          else
             /opt/gradle-8.9/bin/gradle \
               --no-daemon assembleDebug
           fi
 
       - name: Verify APK
-        shell: bash
-        env:
-          PROJECT_DIR: ${{ steps.locate.outputs.project_dir }}
+        id: apk
+        working-directory: ${{ steps.project.outputs.project_dir }}
         run: |
           set -euo pipefail
 
-          APK="$(find "$PROJECT_DIR/app/build/outputs/apk" \
+          APK_PATH="$(find app/build/outputs/apk/debug \
             -type f -name '*.apk' -print -quit)"
 
-          if [ -z "$APK" ]; then
-            echo "::error::APK was not generated."
+          if [ -z "$APK_PATH" ]; then
+            echo "::error::Build finished but APK was not found."
             exit 1
           fi
 
-          echo "APK generated successfully: $APK"
-          ls -lh "$APK"
+          mkdir -p "$GITHUB_WORKSPACE/apk-output"
+          cp "$APK_PATH" "$GITHUB_WORKSPACE/apk-output/Hesabdari-Behzad-debug.apk"
 
-      - name: Upload APK artifact
+          echo "APK created successfully:"
+          ls -lh "$GITHUB_WORKSPACE/apk-output/Hesabdari-Behzad-debug.apk"
+
+      - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: Hesabdari-Behzad-APK
-          path: ${{ steps.locate.outputs.project_dir }}/app/build/outputs/apk/**/*.apk
+          path: apk-output/Hesabdari-Behzad-debug.apk
           if-no-files-found: error
           retention-days: 14
